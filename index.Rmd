@@ -1,0 +1,806 @@
+---
+title: "Renewable Energy Generation and Carbon Emission in the United States"
+author: Nafisul Huq
+output: 
+  flexdashboard::flex_dashboard:
+    theme:
+      bg: "white"
+      fg: "black" 
+      primary: "#688f4e"
+    orientation: columns
+    vertical_layout: scroll
+---
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(ggplot2)
+library(ggExtra)
+library(grid)
+library(tidyverse)
+library(shadowtext)
+library(fmsb)
+library(plotly)
+library(dygraphs)
+library(visNetwork)
+library(psych)
+library(readxl)
+library(ggtext)
+library(lubridate)
+library(sf)
+library(osmdata)
+library(tigris)
+library(viridis)
+library(tidycensus)
+library(tmap)
+```
+
+
+```{r, include=FALSE}
+# Data
+
+annual_generation <- read_xls("annual_generation.xls",skip = 1)
+
+annual_emission <- read_xlsx("emission_annual.xlsx")
+
+emission <- subset(annual_emission,!(Energy_Source=="All Sources"))
+emission <- subset(emission, Year>=2000)
+emission <- subset(emission, !(State == "US-TOTAL"))
+emission <- subset(emission, !(State == "US-Total"))
+
+  
+
+emission_modified <-emission %>%
+  group_by(Year,State,Energy_Source)%>%
+  summarise(Total_CO2_Emission = sum(CO2))
+
+# Aggregate data to calculate total CO2 emissions per year
+total_emission_per_year <-emission %>%
+  group_by(Year) %>%
+  summarise(Total_CO2_Emission = sum(CO2)) %>%
+  mutate(Total_CO2_Emission = Total_CO2_Emission/1e6)
+
+
+total_emission_per_year_1 <-emission %>%
+  group_by(Year,State) %>%
+  summarise(Total_CO2_Emission = sum(CO2)) 
+
+
+# Cleaning energy generation dataset:
+generation <- subset(annual_generation,!(ENERGY_SOURCE =="Total"))
+
+generation <- subset(generation, YEAR>= 2000)
+
+generation<- subset(generation, !(STATE == "US-TOTAL"))
+generation <- subset(generation, !(STATE == "US-Total"))
+
+total_gene_per_year <- generation %>%
+  group_by(YEAR, STATE, ENERGY_SOURCE) %>%
+  summarise(Total_ENERGY_GENERATION = sum(GENERATION_Megawatthours))
+
+# Aggregate data to calculate total energy generation per year
+total_gene_per_year_1 <-total_gene_per_year %>%
+  group_by(YEAR) %>%
+  summarise(Total_ENERGY_GENERATION = sum(Total_ENERGY_GENERATION))
+
+
+total_gene_per_year_2 <-total_gene_per_year %>%
+  group_by(YEAR, STATE) %>%
+  summarise(Total_ENERGY_GENERATION = sum(Total_ENERGY_GENERATION))
+names(total_gene_per_year_2) <- c("Year","State","Energy_Generation")
+
+## TOTAL ENERGY GENERATION By DIFFERENT SOURCE
+total_gen_per_year_3 <- total_gene_per_year %>%
+  group_by(YEAR,ENERGY_SOURCE) %>%
+  summarise(Energy_Generation = sum(Total_ENERGY_GENERATION))
+
+
+emission_gen_join <- left_join(total_gene_per_year_2,total_emission_per_year_1)
+
+join_final <- emission_gen_join %>%
+  group_by(Year) %>%
+  summarise(total_emission = mean(Total_CO2_Emission),
+            total_gen = mean(Energy_Generation))
+
+join_final1 <- join_final %>%
+  filter(Year == c(2000,2001,2002,2003,2004,2005))
+
+join_final2 <- join_final %>%
+  filter(Year == 2006)
+
+join_final3 <- join_final %>%
+  filter(Year == 2007)
+
+join_final4 <- join_final %>%
+  filter(Year == 2008)
+
+join_final5 <- join_final %>%
+  filter(Year == c(2009,2010,2011))
+
+join_final6 <- join_final %>%
+  filter(Year == 2012)
+
+join_final7 <- join_final %>%
+  filter(Year == 2013)
+
+join_final8 <- join_final %>%
+  filter(Year == 2014)
+
+join_final9 <- join_final %>%
+  filter(Year == 2015 |  Year == 2016)
+
+join_final10 <- join_final %>%
+  filter(Year == 2017 |  Year == 2018)
+
+join_final11 <- join_final %>%
+  filter(Year == 2019)
+
+join_final12 <- join_final %>%
+  filter(Year == 2020 |  Year == 2022)
+
+join_final13 <- join_final %>%
+  filter(Year == 2021)
+#
+  renewable_sources <- c("solar", "Wind", "hydro", "Geothermal", "Other Biomass",
+  "Solar Thermal and Photovoltaic","Hydroelectric Conventional","Pumped Storage","Wood and Wood Derived Fuels") # Define renewable energy sources
+
+renew_gen <- total_gen_per_year_3  %>%
+  mutate(Source_Type = ifelse(ENERGY_SOURCE %in% renewable_sources, "Renewable", "Non-Renewable")) %>%
+  group_by(YEAR, ENERGY_SOURCE) %>%
+  summarise(Total_Energy_Generation = sum(Energy_Generation)) %>%
+  pivot_wider(names_from = ENERGY_SOURCE, values_from = Total_Energy_Generation, values_fill = 0) 
+
+
+renew_gen1 <- renew_gen %>%
+  mutate(renew = rowSums(across(c( `Wind`, `Hydroelectric Conventional`, `Solar Thermal and Photovoltaic`, `Geothermal`, `Wood and Wood Derived Fuels`, `Pumped Storage`, `Other Biomass`))),
+         nonrenew = rowSums(across(c( Coal, Nuclear, Other, Petroleum, `Other Gases`))))
+
+renew_gen1_total <- renew_gen1 %>%
+  mutate(Total_Energy=(renew+nonrenew)/1e6,
+         Renewable_Energy= renew/1e6,
+         Nonrenewable_Energy= nonrenew/1e6)
+
+nonnew_gen <- total_gen_per_year_3  %>%
+  mutate(Source_Type = ifelse(ENERGY_SOURCE %in% renewable_sources, "Renewable", "Non-Renewable")) %>%
+  group_by(YEAR, ENERGY_SOURCE) 
+nonnew_gen <- nonnew_gen %>%
+  filter(Source_Type == "Non-Renewable")
+nonnew_gen$Energy_Generation <- nonnew_gen$Energy_Generation/1e6
+
+
+total_emi<- emission_modified %>%
+  group_by(Year, Energy_Source) %>%
+  summarise(Total_Emission = sum(Total_CO2_Emission))
+total_emi$Total_Emission <- total_emi$Total_Emission/1e6
+
+nonnew_emi <- total_emi%>%
+    mutate(Source_Type = ifelse(Energy_Source %in% renewable_sources, "Renewable", "Non-Renewable")) %>%
+  filter(Source_Type == "Non-Renewable") %>%
+  group_by(Year, Energy_Source) 
+
+# eliminate other gases energy souce.
+
+nonnew_emi <- nonnew_emi %>%
+  filter(Energy_Source != "Other Gases")
+
+generation1 <- renew_gen1_total %>%
+  rename(Year=YEAR)
+emission_generation <- full_join(total_emission_per_year,generation1)
+
+```
+
+
+```{r, include=FALSE}
+# For map
+
+st <- states()
+
+emi_gen_state <- emission_gen_join %>%
+  group_by(State) %>%
+  summarise(average_emission = mean(Total_CO2_Emission),
+            average_generation = mean(Energy_Generation))
+
+total_energy <- sum(emi_gen_state$average_generation)
+total_co2 <- sum(emi_gen_state$average_emission)
+
+
+#total_energyper <- sum(emi_gen_state$generation_percentage)
+# Calculate generation and emission percentages for each state
+emi_gen_state <- emi_gen_state %>%
+  mutate(generation_percentage = average_generation / total_energy * 100,
+         emission_percentage = average_emission / total_co2 * 100)
+
+
+
+
+st1 <- st %>%
+  filter(STUSPS!="AS") %>%
+  filter(STUSPS!="GU") %>%
+  filter(STUSPS!="VI") %>%
+  filter(STUSPS!="MP") %>%
+  filter(STUSPS!="PR") %>%
+  rename(State =STUSPS) 
+ 
+emi_gen_state <- left_join(st1,emi_gen_state)
+
+emi_gen_state <- emi_gen_state %>%
+  mutate(differ = generation_percentage-emission_percentage)
+
+```
+
+Overview {data-orientation=rows}
+=======================================
+Sidebar Title {.sidebar data-width=400}
+---------------------------------------
+
+**Is Renewable Energy Generation is leading to less energy related carbon emission in the United States?**
+<br>
+</br>
+In recent years, there has been a growing global effort to transition toward renewable energy sources as a means of mitigating climate change and reducing greenhouse gas emission. This transition raises questions about the impact of renewable energy generation on energy related carbon dioxide (CO2) emissions.
+<br>
+</br>
+The U.S. Energy Information Administration (EIA) provides comprehensive data sets that offers insights into energy production, consumption, and emissions in United States. I collect all the data from (EIA) website for my project. The specific data sets I intend to use are available on [links](https://www.eia.gov/electricity/data/state/).
+<br>
+</br>
+Using EIA data sets, I attempt to find out if higher renewable energy generation is reducing energy
+related CO2 emissions in the U.S. It seems that growing dependency on renewable energy production
+minimizes energy related CO2 emissions by different sources, such as coal, petroleum, natural gas, and
+so on. However, it may not be the case. Therefore, I intend to investigate the relationship between
+renewable energy generation and energy related CO2 emissions in the U.S.
+<br>
+</br>
+Understanding this relationship is crucial for policymaker, energy planners, and environmental advocates seeking to formulate effective strategies for transitioning towards a more sustainable and low-carbon energy future. 
+
+
+
+
+
+
+
+Row {data-height=400}
+-----------------------------------------
+
+### Energy Generation
+
+```{r, echo=FALSE, warning=FALSE,message=FALSE}
+
+plot1 <- ggplot(renew_gen1_total, aes(x = YEAR, y = Total_Energy)) +
+  geom_line( color="lightcyan4",
+            linewidth=1.2)+
+  geom_text(data = renew_gen1_total, 
+             aes(x = 2015, y = 6100, label = "Total Energy Generation"), 
+             vjust = -0.5, 
+             color = "lightcyan4", 
+             size = 3) +
+  geom_line(data=renew_gen1_total,
+            aes(x=YEAR,y=Renewable_Energy),
+            color="darkolivegreen3",
+            linewidth=1.2) +
+   geom_text(data = renew_gen1_total, 
+             aes(x = 2015, y = 1400, label = "Renewable Energy"), 
+             vjust = -0.5, 
+             color = "darkolivegreen3", 
+             size = 3) +
+    geom_line(data=renew_gen1_total,
+            aes(x=YEAR,y=Nonrenewable_Energy),
+            color="salmon2",
+            linewidth=1.2) +
+  geom_text(data = renew_gen1, 
+            aes(x = 2015, y = 3900, label = "Non-Renewable Energy"), 
+            vjust = 1.5, 
+            color = "salmon2", 
+            size = 3) +
+  labs(x = " ", 
+       y = "Total Energy Generation (Tera Watt Hours)", 
+       title = "Annual Energy Generation in the United States from 2000 to 2022",
+       caption = "Source: U.S. Energy Information Administration (EIA) \nhttps://www.eia.gov/electricity/data ") +
+   theme(  plot.title         = element_markdown(margin = margin(b=10),
+                                                size   = 12),
+          panel.background   = element_blank(),
+          panel.grid.major.y = element_line( color      = "grey80", 
+                                              linewidth = 0.5, 
+                                              linetype  = "dotted"),
+          panel.grid.major.x = element_line( color      = "grey80", 
+                                              linewidth = 0.5, 
+                                              linetype  = "dotted"),
+           plot.caption       = element_text(hjust = -0.01, 
+                                              size  = 7,
+                                              margin=margin(t=0)),
+          axis.title.y = element_text(size = 9) ,
+          axis.ticks.x       = element_blank() ,
+          axis.ticks.y       = element_blank(),
+          axis.text.x        = element_text(size = 7),
+          axis.text.y        = element_text(size = 7) ) 
+
+ggplotly(plot1)
+
+```
+
+
+
+> This visualization offers a comprehensive overview of the United States’ annual energy generation spanning from 2000 to 2022. The horizontal axis delineates the progression of years, while the vertical axis quantifies the total energy output measured in terawatt hours. Divided into three distinct segments, the graph portrays energy generated from renewable sources, nonrenewable sources, and a cumulative energy generation line. The cumulative line aggregates the total energy generated each year, providing insight into its growth trajectory over time. In conjunction with renewable and nonrenewable energy sources, this cumulative representation offers a holistic view of the overall trend in energy production. The renewable energy line ascends gradually, signaling an increasing contribution to total energy output. Conversely, the nonrenewable energy line declines steadily, indicating a diminishing role in the energy mix. This trend underscores a significant shift towards cleaner, more sustainable energy production methods.
+
+Row {.tabset data-height=400}
+-----------------------------------------
+### CO2 Emission
+
+```{r, echo=FALSE,warning=FALSE,message=FALSE,fig.align='default'}
+
+total_emission_per_year_point <- total_emission_per_year %>%
+  filter(Year %in% c(2005,2007))
+
+total_emission_per_year_point1 <- total_emission_per_year %>%
+  filter(Year %in% c(2020))
+
+highlights_point <- c(2005,2007,2020)
+plot2 <- ggplot(total_emission_per_year, 
+                aes(x = Year, y = Total_CO2_Emission)) +
+   geom_line(color="lightsteelblue4", 
+             linewidth=1.2)+
+  geom_point(data=total_emission_per_year_point, 
+             aes(x=Year,y=Total_CO2_Emission),
+             color="black",
+             fill = "tomato",
+             shape=21,
+             size=5) +
+    geom_point(data=total_emission_per_year_point1, 
+             aes(x=Year,y=Total_CO2_Emission),
+             color="black",
+             fill = "seagreen3",
+             shape=21,
+             size=5) +
+  labs(x = " ", 
+       y = "Total CO2 Emission (Mega Metric Ton)", 
+       title = "Energy Related CO2 Emission in the United States from 2000 to 2022",
+       caption = "Source: U.S. Energy Information Administration (EIA) \nhttps://www.eia.gov/electricity/data ") +
+  theme_minimal() +
+  theme(plot.title = element_markdown(margin = margin(b=10),
+                                      size = 12),
+         plot.caption       = element_text(hjust = -0.01, 
+                                              size  = 7,
+                                              margin=margin(t=0)) )+
+ 
+  scale_x_continuous(breaks = seq(2000,2022, by=5)) +
+  geom_text(aes(x = 2012, y = 5050, label = "In year 2005 and 2007\n annual CO2 emission hits at its highest point"), 
+            size = 3, 
+            color = "grey20") +
+
+  geom_text(aes(x = 2016.4, y = 3100, label = "In year 2020 \n annual CO2 hits at its lowest point"), 
+            size = 3, 
+            color = "grey20") 
+ 
+
+ggplotly(plot2)
+
+```
+
+>This graph depicts the yearly total CO2 emissions stemming from energy generation across the United States from 2000 to 2022. CO2 emissions are a significant concern associated with energy generation from nonrenewable sources. Higher reliance on nonrenewable sources tends to result in increased CO2 emissions. Conversely, reducing dependence on nonrenewable sources or transitioning to renewable sources can lead to decreased CO2 emissions. Notably, CO2 emissions peaked in 2005 and 2007 before gradually declining. By 2020, emissions reached their lowest point, indicating a positive trend towards reduced environmental impact.
+
+
+
+### CO2 Emission from Non-renewable Sources
+
+```{r, echo=FALSE,warning=FALSE,message=FALSE,fig.align='default'}
+
+colors <- c("Coal" = "red", "Natural Gas" = "blue", "Petroleum" = "springgreen4", "Other" = "orchid4")
+
+
+p1_plotly <- plot_ly(data = nonnew_emi, 
+                     x = ~Year, 
+                     y = ~Total_Emission, 
+                     color = ~Energy_Source,
+                     colors = colors,  # Specify custom colors
+                     size = ~Total_Emission, 
+                     text = ~paste("Year: ", Year, "<br>Total Emission: ", Total_Emission),
+                     type = 'scatter', 
+                     mode = 'markers',
+                     marker = list(line = list(color = ifelse(nonnew_emi$Energy_Source == "Coal", "black",
+                                                               ifelse(nonnew_emi$Energy_Source == "Natural Gas", "black",
+                                                                      ifelse(nonnew_emi$Energy_Source == "Petroleum", "black", 
+                                                                             ifelse(nonnew_emi$Energy_Source == "Other", "black", "transparent")))),
+                                               width = 0.5)))  
+
+
+p1_plotly <- p1_plotly %>%
+  layout(hovermode = "closest", 
+         dragmode = "zoom", 
+         yaxis = list(title ="Total CO2 Emission (Mega Metric Ton)"),
+         xaxis = list(title =" "),
+         title = "CO2 Emission from Non-renewable Energy Sources in \nthe United States from 2000 to 2022",
+         legend = list(orientation = "v"))  
+
+
+p1_plotly
+
+```
+
+>The graph shows the carbon emissions from major nonrenewable energy generation sources—coal, natural gas, petroleum, and other—over the period from 2000 to 2022. Each bubble represents the total CO2 emissions attributed to a specific energy source, with coal depicted in red, natural gas in blue, petroleum in green, and other sources in purple.Coal emerges as the primary contributor to carbon emissions throughout the period, reflecting its historical dominance in energy production. However, a discernible shift occurs post-2010, marked by a reduction in coal usage and subsequent decline in emissions. In contrast, the utilization of natural gas for energy generation escalates after 2010, leading to a significant increase in CO2 emissions, which closely approach those of coal by 2020.
+Emissions from petroleum and other sources exhibit a declining trend over the same time span, suggesting a gradual transition towards cleaner energy alternatives.
+Overall, while coal remains a prominent contributor to carbon emissions however, natural gas emerging as a notable contender in recent years.
+
+
+
+Statewise Analysis  {data-orientation=columns}
+==============================
+>In this segment, I aim to illustrate the proportions of energy generation and carbon emissions attributable to various states. Additionally, I seek to juxtapose each state's percentage share of total energy generation against its contribution to total energy related CO2 emissions. Among all states, Texas accounts for 10.61% of energy generation and emits the highest proportion of energy-related carbon, at 11.29%. Notably, Texas's emission contribution exceeds its generation contribution. In the Pacific Northwest, including Washington, Oregon, and California, the emission rates are nearly half or less than half of their respective generation percentages.
+
+Column
+-----------------------------------------
+### Energy Generation in Different States
+
+```{r}
+
+p <- ggplot() +
+    geom_sf(data = emi_gen_state, 
+            aes(fill = generation_percentage,label= NAME)) +
+    coord_sf(xlim = c(-125, -65), 
+             ylim = c(25, 50)) +
+   theme_void() +
+   theme(legend.position = 'top',
+        legend.text = element_text(size = 6),
+        legend.key.size = unit(0.8, "cm")) +
+  labs(title = "Percentages of Energy Generation Across the U.S. \nfrom 2000 to 2022")+
+  theme(plot.title         = element_markdown(margin = margin(b=10), 
+                                              hjust = 0,
+                                              size=14)) +
+  scale_fill_viridis(option = "mako",
+                     name     = '',
+                     direction = -1,
+                     limits = c(0, 12),
+                     breaks = c(0, 2.5, 5, 7.5, 10),
+                     labels = c('0%', '2.5%', '5%', '7.5%', '10%')) 
+
+p_plotly1 <- ggplotly(p) %>%
+  layout(hovermode = "closest",  # Show closest data point on hover
+         dragmode = "zoom" ,
+          xaxis = list(visible = FALSE),  # Hide x-axis
+         yaxis = list(visible = FALSE))  # Enable tooltip
+p_plotly1
+
+
+
+```
+
+Column {data-height=500}
+-----------------------------------------
+
+### Energy Related CO2 Emission in Different States 
+
+```{r}
+
+
+
+p1 <- ggplot() +
+    geom_sf(data = emi_gen_state, 
+            aes(fill = emission_percentage,label= NAME)) +
+    coord_sf(xlim = c(-125, -65), 
+             ylim = c(25, 50)) +
+   theme_void() +
+   theme(legend.position = 'top',
+        legend.text = element_text(size = 6),
+        legend.key.size = unit(0.8, "cm")) +
+  labs(title = "Percentages of Energy Related Carbon Emissions Across \nthe U.S. from 2000 to 2022")+
+  theme(plot.title         = element_markdown(margin = margin(b=10), 
+                                              hjust = 0,
+                                              size=14)) +
+  scale_fill_viridis(option = "magma",
+                     name     = '',
+                     direction = -1,
+                     limits = c(0, 12),
+                     breaks = c(0, 2.5, 5, 7.5, 10),
+                     labels = c('0%', '2.5%', '5%', '7.5%', '10%')) 
+
+p_plotly2 <- ggplotly(p1) %>%
+  layout(hovermode = "closest",  
+         dragmode = "zoom" ,
+          xaxis = list(visible = FALSE),  
+         yaxis = list(visible = FALSE))  
+
+p_plotly2
+
+
+
+
+```
+
+
+Relationship {data-orientation=rows}
+==============================
+
+Row {.sidebar data-width=650}
+-----------------------------------------
+
+```{r, warning=FALSE, message=FALSE}
+plot3 <- ggplot(join_final,aes(x=total_gen/1e6,y=total_emission/1e6))+
+  geom_path(linetype="dashed",
+            color="cadetblue") +
+   geom_point(data = join_final1,
+              aes(x=total_gen/1e6, y=total_emission/1e6),
+              color = "black",
+              fill ="maroon4",
+              shape =21,
+              size=2)+
+  geom_text(data = join_final1,
+            aes(x=total_gen/1e6, y=total_emission/1e6, label=Year),
+            color="maroon4",
+            size=2,
+            vjust=-1) +
+  geom_point(data = join_final2,
+              aes(x=total_gen/1e6, y=total_emission/1e6),
+              color = "black",
+              fill ="maroon4",
+              shape =21,
+              size=2)+
+  geom_text(data = join_final2,
+            aes(x=total_gen/1e6, y=total_emission/1e6, label=Year),
+            color="maroon4",
+            size=2,
+            vjust=-1.2,
+            hjust=-0.1) +
+  geom_point(data = join_final3,
+              aes(x=total_gen/1e6, y=total_emission/1e6),
+              color = "black",
+              fill ="maroon4",
+              shape =21,
+              size=2)+
+  geom_text(data = join_final3,
+            aes(x=total_gen/1e6, y=total_emission/1e6, label=Year),
+            color="maroon4",
+            size=2,
+            vjust=-1) +
+  geom_point(data = join_final4,
+              aes(x=total_gen/1e6, y=total_emission/1e6),
+              color = "black",
+              fill ="maroon4",
+              shape =21,
+              size=2)+
+  geom_text(data = join_final4,
+            aes(x=total_gen/1e6, y=total_emission/1e6, label=Year),
+            color="maroon4",
+            size=2,
+            vjust=0.2,
+            hjust=-0.4) +
+  annotate('text',
+             x        = 162.5,
+             y        = 95,
+             hjust    = 0,
+             vjust    = 0,
+             label    = 'The emergence of New \nEnergy for America Plan 2008',
+             size     = 2,
+           fontface = "bold",
+             color    = 'darkolivegreen')+
+  geom_segment(aes(x = 161.75, xend = 162.45, y = 97, yend = 97), 
+               arrow = arrow(length = unit(0.04, "inches") ), 
+               color = "grey50") +
+  geom_point(data = join_final5,
+              aes(x=total_gen/1e6, y=total_emission/1e6),
+              color = "black",
+              fill ="maroon4",
+              shape =21,
+              size=2)+
+  geom_text(data = join_final5,
+            aes(x=total_gen/1e6, y=total_emission/1e6, label=Year),
+            color="maroon4",
+            size=2,
+            vjust=-1) +
+    annotate('text',
+             x        = 162.5,
+             y        = 92,
+             hjust    = 0,
+             vjust    = 0,
+             label    = 'Recovery from the \nrecession',
+             size     = 2,
+           fontface = "bold",
+             color    = 'darkolivegreen')+
+  geom_segment(aes(x = 161.95, xend = 162.45, y = 93.5, yend = 93.5), 
+               arrow = arrow(length = unit(0.04, "inches") ), 
+               color = "grey50") +
+  geom_point(data = join_final6,
+              aes(x=total_gen/1e6, y=total_emission/1e6),
+              color = "black",
+              fill ="maroon4",
+              shape =21,
+              size=2)+
+  geom_text(data = join_final6,
+            aes(x=total_gen/1e6, y=total_emission/1e6, label=Year),
+            color="maroon4",
+            size=2,
+            vjust=1,
+            hjust=1.5) +
+  annotate('text',
+             x        = 149.8,
+             y        = 87,
+             hjust    = 0,
+             vjust    = 0,
+             label    = 'American Recovery and \nReinvestment Act of 2009',
+             size     = 2,
+           fontface = "bold",
+             color    = 'darkolivegreen')+
+  geom_segment(aes(x = 154.7, xend = 153.5, y = 89, yend = 89), 
+               arrow = arrow(length = unit(0.04, "inches") ), 
+               color = "grey50") +
+  geom_point(data = join_final7,
+              aes(x=total_gen/1e6, y=total_emission/1e6),
+              color = "black",
+              fill ="maroon4",
+              shape =21,
+              size=2)+
+  geom_text(data = join_final7,
+            aes(x=total_gen/1e6, y=total_emission/1e6, label=Year),
+            color="maroon4",
+            size=2,
+            vjust=-1,
+            hjust=-0.1) +
+  geom_point(data = join_final8,
+              aes(x=total_gen/1e6, y=total_emission/1e6),
+              color = "black",
+              fill ="maroon4",
+              shape =21,
+              size=2)+
+  geom_text(data = join_final8,
+            aes(x=total_gen/1e6, y=total_emission/1e6, label=Year),
+            color="maroon4",
+            size=2,
+            vjust=-1,
+            hjust=-0.5) +
+  geom_point(data = join_final9,
+              aes(x=total_gen/1e6, y=total_emission/1e6),
+              color = "black",
+              fill ="maroon4",
+              shape =21,
+              size=2)+
+  geom_text(data = join_final9,
+            aes(x=total_gen/1e6, y=total_emission/1e6, label=Year),
+            color="maroon4",
+            size=2,
+            vjust=0,
+            hjust=-0.5) +
+  geom_point(data = join_final10,
+              aes(x=total_gen/1e6, y=total_emission/1e6),
+              color = "black",
+              fill ="maroon4",
+              shape =21,
+              size=2)+
+  geom_text(data = join_final10,
+            aes(x=total_gen/1e6, y=total_emission/1e6, label=Year),
+            color="maroon4",
+            size=2,
+            vjust=-1) +
+  geom_point(data = join_final11,
+              aes(x=total_gen/1e6, y=total_emission/1e6),
+              color = "black",
+              fill ="maroon4",
+              shape =21,
+              size=2)+
+  geom_text(data = join_final11,
+            aes(x=total_gen/1e6, y=total_emission/1e6, label=Year),
+            color="maroon4",
+            size=2,
+            vjust=1,
+            hjust=-0.5) +
+  annotate('text',
+             x        = 155,
+             y        = 66.5,
+             hjust    = 0,
+             vjust    = 0,
+             label    = 'Popularity of renewable energy began \nto rise over coal-based energy',
+             size     = 2,
+           fontface = "bold",
+             color    = 'darkolivegreen')+
+  geom_segment(aes(x = 160, xend = 161.5, y = 67.5, yend = 67.5), 
+               arrow = arrow(length = unit(0.04, "inches") ), 
+               color = "grey50") +
+  geom_point(data = join_final12,
+              aes(x=total_gen/1e6, y=total_emission/1e6),
+              color = "black",
+              fill ="maroon4",
+              shape =21,
+              size=2)+
+  geom_text(data = join_final12,
+            aes(x=total_gen/1e6, y=total_emission/1e6, label=Year),
+            color="maroon4",
+            size=2,
+            vjust=-1,
+            hjust=-0.3) +
+  annotate('text',
+             x        = 150.4,
+             y        = 60.5,
+             hjust    = 0,
+             vjust    = 0,
+             label    = 'Renewable energy generation in the U.S.\naccelerated despite the COVID pandemic',
+             size     = 2,
+           fontface = "bold",
+             color    = 'darkolivegreen')+
+   geom_segment(aes(x = 156, xend = 157, y = 61, yend = 61), 
+               arrow = arrow(length = unit(0.04, "inches") ), 
+               color = "grey50") +
+  geom_point(data = join_final13,
+              aes(x=total_gen/1e6, y=total_emission/1e6),
+              color = "black",
+              fill ="maroon4",
+              shape =21,
+              size=2)+
+  geom_text(data = join_final13,
+            aes(x=total_gen/1e6, y=total_emission/1e6, label=Year),
+            color="maroon4",
+            size=2,
+            vjust=1.5) +
+    annotate('text',
+             x        = 163.7,
+             y        = 67,
+             hjust    = 0,
+             vjust    = 0,
+             label    = 'For the first time \nrenewable energy \nsurpassed coal-based \nenergy generation',
+             size     = 1.9,
+           fontface = "bold",
+             color    = 'darkolivegreen')+
+   geom_segment(aes(x = 165.9, xend = 165.9, y = 66.59, yend = 65.25), 
+               arrow = arrow(length = unit(0.04, "inches") ), 
+               color = "grey50") +
+  labs(x="Total Energy Generation (Tera Watt Hours)",
+       y="Total CO2 Emission (Mega Metric Ton)", 
+       title = "Total Energy Related Carbon Emission and Total Energy Generation \nfrom 2000 to 2022 in the United States",
+       caption = "Source: U.S. Energy Information Administration (EIA) \nhttps://www.eia.gov/electricity/data ") +
+   theme( 
+          panel.background   = element_blank(),
+          panel.grid.major.y = element_line( color      = "grey90", 
+                                              linewidth = 0.5, 
+                                              linetype  = "dotted"),
+          panel.grid.major.x = element_line( color      = "grey90", 
+                                              linewidth = 0.5, 
+                                              linetype  = "dotted"),
+           plot.caption       = element_text(hjust = -0.01, 
+                                              size  = 5.5,
+                                              margin=margin(t=0)),
+          axis.title.y = element_text(size = 9) ,
+          axis.ticks.x       = element_blank() ,
+          axis.ticks.y       = element_blank(),
+          axis.text.x        = element_text(size = 7),
+          axis.text.y        = element_text(size = 7)) 
+
+
+
+
+plot3
+
+
+
+```
+
+> This visualization depicts the interplay between total CO2 emissions and total energy generation over time. The x-axis represents the cumulative total energy generation measured in tera watt hours, while the y-axis quantifies the corresponding total energy-related carbon emissions in mega metric tons. Each data point on the graph corresponds to a specific year, illustrating the evolution of these metrics from 2000 to 2022. Despite minor fluctuations, the overarching trend reveals a significant correlation between increasing energy generation and decreasing energy-related carbon emissions. This suggests a fundamental shift towards more sustainable energy practices over the years.
+<br>
+</br>
+Snippets of a range of events concretely mark the explanation of such transformation. For instance, 2008 saw a sudden drop in non-renewable energy production because of the Great Recession and experienced emergence of New Energy for America Plan 2008 for supporting renewable energy generation.   Then, when the recession took a severe form hitting the already battered non-renewable energy production, American Recovery and Reinvestment Act of 2009 came into effect with a large stimulus package to promote renewable energy production. After that in 2019, popularity of renewable energy began to rise over coal-based energy in the U.S. Further, in 2020 Renewable energy generation in the U.S. accelerated despite the COVID pandemic. Moving to 2021, renewable energy generation continued to soar despite a spike in the demand for petroleum-based energy in the country.  Finally, in 2022, renewable energy generation surpassed coal-based energy generation in the U.S. for the first time.
+<br>
+</br>
+Notably, as energy generation escalates, there’s a discernible decline in carbon emissions, indicating a growing reliance on renewable energy sources for electricity generation. This transition underscores the collective efforts towards mitigating environmental impact and fostering a cleaner, greener energy landscape.
+
+
+
+
+
+
+
+Row {data-width=350}
+-----------------------------------------
+
+### 
+
+
+
+```{r}
+plot4 <- ggplot(emission_generation, 
+                aes(x = Renewable_Energy, y =  Total_CO2_Emission, label = Year)) +
+         geom_smooth(method = "lm", color ="springgreen4", se=FALSE) +
+         geom_point(alpha = 0.8, color ="turquoise4") +
+         labs(x="Total Renewable Energy Generation (Tera Watt Hours)",
+              y="Total CO2 Emission (Mega Metric Ton)", 
+              title = "Relationship Between Total Renewable Energy Generation \nand Total Energy Related Carbon Emission",
+              caption = "Source: U.S. Energy Information Administration (EIA) \nhttps://www.eia.gov/electricity/data ") +
+        theme_minimal()
+       
+ggplotly(plot4)
+
+
+```
+
+> The regression line in the graph illustrates the relationship between total energy generation by renewable sources and total energy-related CO2 emissions in the United States from 2000 to 2022. The downward slope of the regression line suggests a negative correlation between these two variables. As total energy generation from renewable sources increases, there is a corresponding decrease in total CO2 emissions. This observation aligns with the broader trend of transitioning towards renewable energy sources as a means to mitigate carbon emissions and combat climate change. The negative slope indicates that for each unit increase in total energy generation from renewable sources, there is a decrease in total CO2 emissions by a certain magnitude. This finding underscores the potential of renewable energy as a sustainable alternative to traditional fossil fuel sources, contributing to the reduction of greenhouse gas emissions and promoting environmental sustainability. The downward trajectory of the regression line highlights the progress towards a cleaner and more sustainable energy future, driven by the increasing adoption of renewable energy technologies.
+
